@@ -33,13 +33,13 @@ FSPL_dB = 32.45 + 20*log10(d_km) + 20*log10(f_MHz);
 
 % Diffraction / excess loss
 
-diffraction_loss = 5 + 0.005*(d_km.^2);
+diffraction_loss = 0; % will add terrain dependant model later
 
 % Combine path loss
 
 PL_dB = FSPL_dB + diffraction_loss;
 
-% Computer interference power
+% Compute interference power
 
 I_dBm = Pt_dBm + Gt_dBi + Gr_dBi ...
         - PL_dB ...
@@ -51,7 +51,7 @@ I_over_N_dB = I_dBm - N_dBm;
 
 % Calculate protection distance
 
-idx = find(I_over_N_dB < I_N_threshold, 1, 'first');
+idx = find(I_over_N_dB < I_N_threshold, 1, 'first'); % get the index of the first I/N criteria met
 
 if isempty(idx)
     d_protect_km = NaN;
