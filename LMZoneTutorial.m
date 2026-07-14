@@ -4,6 +4,38 @@
 % compliance/noncompliance framework for determining harmful interference at
 % the output of the receiver antenna
 
+% Calling DLL that uses locally stored terrain and ITM functions
+NET.addAssembly(fullfile('C:\USGS\USGS\', 'SEADLib.dll')); %%%%%%Where the SEADLib.dll is located
+itmp=ITMAcs.ITMP2P;
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%Transmitter
+TxLat = 34.147;
+TxLon = -117.63;
+TxHtm = 30 ;  %%%%%meters
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%Receiver
+RxLat =  35.427;
+RxLon = -116.89;
+RxHtm =  73;  %%%%%%%%meters
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%Terrain Profile 
+USGS3Secp = TerrainPcs.USGS;
+CoordTx = TerrainPcs.Geolocation(TxLat,TxLon);
+CoordRx = TerrainPcs.Geolocation(RxLat,RxLon);
+USGS3Secp.TerrainDataPath=  "C:\USGS\USGS\";
+Elev=double(USGS3Secp.GetPathElevation(CoordTx,CoordRx,90,true));  %%%%%%%%%This is the "z" equivalent
+
+%%%%%%%Need to then get the distance array --> track2 or just calculate the
+%%%%%%%distance and divide by the number of element in Elev
+temp_dist_km=deg2km(distance(TxLat,TxLon,RxLat,RxLon));
+guess_num_steps=temp_dist_km*1000/90;
+length(Elev)
+r=linspace(0,temp_dist_km*1000,length(Elev));  %%%%%%%%X distance is in meters
+
+
+% 
+
 % System parameters
 
 Pt_dBm = 46;
