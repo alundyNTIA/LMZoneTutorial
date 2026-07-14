@@ -67,7 +67,7 @@ Dielectric = 15.0;
 
 Polarity      = int32(1);      % Vertical
 RadioClimate  = int32(5);      % Continental Temperate
-ConfPct       = 0.50;          % This is actually 50%, not 0.5% 
+ConfPct       = 0.50;          
 RelPct        = 0.50;
 
 FreqMHz = f_MHz*ones(1,num_interferers);
