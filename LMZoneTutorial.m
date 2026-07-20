@@ -30,13 +30,39 @@ RxLon = -77.2000;
 RxHtm = 5.0;
 
 % Three interfering transmitters
-
+%{
 %% Read from csv file
 TxLat = [38.1000 38.2300 38.5400];
 TxLon = [-77.4500 -78.2300 -77.6100];
 TxHtm = [10.0 12.0 10.0];
 
 num_interferers = length(TxLat);
+%}
+
+% Read transmitter locations from randomize real
+% 7/20/2026 Does not work, still troubleshooting
+% Think the dataset is too large to convert from excel to csv
+csvFile = 'RandomReal.csv';  
+
+disp(which(csvFile))
+
+if ~isfile(csvFile)
+    error('Cannot find %s', csvFile);
+end
+
+txTable = readtable(csvFile);
+
+TxLat = txTable.Latitude';
+TxLon = txTable.Longitude';
+TxHtm = txTable.Height_M';
+
+% Optional information
+TxID  = txTable.ID;
+RSU   = txTable.RSU;
+
+num_interferers = height(txTable);
+
+fprintf('Loaded %d transmitters from %s\n', num_interferers, csvFile);
 
 %% ITM Parameters
 % Calling DLL that uses locally stored terrain and ITM functions
@@ -170,27 +196,21 @@ fprintf('\nInterferer Summary\n');
 for k=1:num_interferers
 
     fprintf('TX %d\n',k);
-
     fprintf('  Distance      : %.1f km\n',Delta_m(k)/1000);
-
     fprintf('  Path Loss     : %.2f dB\n',dBLoss(k));
-
     fprintf('  Mode          : %d\n',PMode(k));
-
     fprintf('  Error Code    : %d\n',ErrNum(k));
-
     fprintf('  Interference  : %.2f dBm\n\n',I_dBm(k));
 
 end
 
 fprintf('Aggregate Interference = %.2f dBm\n',I_total_dBm);
-
 fprintf('I/N = %.2f dB\n',I_over_N_dB);
 
 if I_over_N_dB <= I_N_threshold
-    disp("Protection criterion satisfied.")
+    disp("Protection criterion not exceeded.")
 else
-    disp("Protection criterion NOT satisfied.")
+    disp("Protection criterion exceeded.")
 end
 
 %% Plot
@@ -199,24 +219,16 @@ figure
 bar([I_dBm I_total_dBm])
 
 grid on
-
 xticklabels({'TX1','TX2','TX3','Aggregate'})
-
 ylabel('Interference (dBm)')
-
 title('Received Interference')
-
 figure
-
 bar(I_over_N_dB)
 
 hold on
 
 yline(I_N_threshold,'r--','LineWidth',2)
-
 ylabel('I/N (dB)')
-
 title('Aggregate I/N')
-
 grid on
 %%
