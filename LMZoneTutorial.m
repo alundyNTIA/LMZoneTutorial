@@ -42,7 +42,7 @@ num_interferers = length(TxLat);
 % Read transmitter locations from randomize real
 % 7/20/2026 Does not work, still troubleshooting
 % Think the dataset is too large to convert from excel to csv
-csvFile = 'RandomReal.csv';  
+csvFile = 'RandomReal.xlsx';  
 
 disp(which(csvFile))
 
