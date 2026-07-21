@@ -30,18 +30,18 @@ RxLon = -77.2000;
 RxHtm = 5.0;
 
 % Three interfering transmitters
-%{
+
 %% Read from csv file
-TxLat = [38.1000 38.2300 38.5400];
-TxLon = [-77.4500 -78.2300 -77.6100];
-TxHtm = [10.0 12.0 10.0];
+TxLat = [24.55478848 24.5700912438 24.57031318];
+TxLon = [-81.80757429 -81.77097236 -81.73660619];
+TxHtm = [20.0 20.0 20.0];
 
 num_interferers = length(TxLat);
-%}
+
 
 % Read transmitter locations from randomize real
-% 7/20/2026 Does not work, still troubleshooting
-% Think the dataset is too large to convert from excel to csv
+% Turning off for now to test compute time for long distance tx
+%{
 csvFile = 'RandomReal.xlsx';  
 
 disp(which(csvFile))
@@ -63,6 +63,8 @@ RSU   = txTable.RSU;
 num_interferers = height(txTable);
 
 fprintf('Loaded %d transmitters from %s\n', num_interferers, csvFile);
+
+%}
 
 %% ITM Parameters
 % Calling DLL that uses locally stored terrain and ITM functions
