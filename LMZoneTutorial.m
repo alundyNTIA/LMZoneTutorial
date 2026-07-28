@@ -66,7 +66,6 @@ TxHtm = [ ...
 
 num_interferers = length(TxLat);
 
-
 % Read transmitter locations from randomize real
 % Turning off for now to test compute time for long distance tx
 %{
@@ -116,6 +115,21 @@ NET.addAssembly(fullfile('C:\USGS\USGS\', 'SEADLib.dll'));
 %                     Results are probably invalid.
 %         Other-  Warning: Some parameters are out of range.
 %                          Results are probably invalid.
+
+%% Reliability selection
+useRandomReliability = true;   % true = uniform random, false = fixed value
+
+RelPct_fixed = 0.50;           % Used when random is disabled
+
+RelMin = 0.01;
+RelMax = 0.99;
+
+if useRandomReliability
+    RelPct_array = RelMin + (RelMax-RelMin).*rand(1,num_interferers); % rand function draws from uniform distribution
+else
+    RelPct_array = RelPct_fixed*ones(1,num_interferers);
+end
+%%
 
 Refrac = 301.0;
 Conduct = 0.005;
