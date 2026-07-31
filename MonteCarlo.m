@@ -159,11 +159,16 @@ tic
     ErrNum(k)  = err;
     Delta_m(k) = dist;
 
+    tx_rx_distance = deg2km(distance(txLat,txLon,RxLat,RxLon));
+
+    fprintf('TX %d Distance: %.2f km\n', k, tx_rx_distance);
+
     % Optional progress display every 1000 transmitters
     if mod(k,1000)==0 || k==num_interferers
         fprintf('Processed %d of %d transmitters...\n',k,num_interferers);
     end
 toc
+%fprintf('  Distance      : %.1f km\n', Delta_m(k)/1000);
 end
 
 % Compute Aggregate interference (multiple transmitters)
@@ -220,7 +225,7 @@ fprintf('\nInterferer Summary\n');
 for k=1:num_interferers
 
     fprintf('TX %d\n',k);
-    fprintf('  Distance      : %.1f km\n',Delta_m(k)/1000);
+    %fprintf('  Distance      : %.1f km\n',Delta_m(k)/1000);
     fprintf('  Path Loss     : %.2f dB\n',dBLoss(k));
     fprintf('  Mode          : %d\n',PMode(k));
     fprintf('  Error Code    : %d\n',ErrNum(k));

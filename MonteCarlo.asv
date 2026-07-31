@@ -1,4 +1,5 @@
 
+
 % The purpose of this code is to demonstrate a simplistic
 % compliance/noncompliance framework for determining harmful interference at
 % the output of the receiver antenna
@@ -40,7 +41,7 @@ num_interferers = length(TxLat);
 
 % Read transmitter locations from randomize real
 
-csvFile = 'RandomReal.xlsx';  
+csvFile = 'RandomReal.xlsx';
 
 disp(which(csvFile))
 
@@ -50,17 +51,18 @@ end
 
 txTable = readtable(csvFile);
 
+% Keep only the first 10 transmitters (or fewer if the file has <10)
+num_interferers = min(10, height(txTable));
+txTable = txTable(1:num_interferers,:);
+
+% Extract transmitter information
 TxLat = txTable.Latitude';
 TxLon = txTable.Longitude';
 TxHtm = txTable.Height_M';
 
 % Optional information
-TxID  = txTable.ID;
-RSU   = txTable.RSU;
-
-num_interferers = height(txTable);
-
-num_interferers = head
+TxID = txTable.ID;
+RSU  = txTable.RSU;
 
 fprintf('Loaded %d transmitters from %s\n', num_interferers, csvFile);
 
@@ -116,7 +118,7 @@ ErrNum  = int32(zeros(1,num_interferers));
 Delta_m = zeros(1,num_interferers);
 
 for k = 1:num_interferers
-
+tic
     % Single-element inputs
     txLat = TxLat(k);
     txLon = TxLon(k);
@@ -157,11 +159,14 @@ for k = 1:num_interferers
     ErrNum(k)  = err;
     Delta_m(k) = dist;
 
+    deg2km(distance(txLat,txLon,RxLat,RxLon) ;
+
     % Optional progress display every 1000 transmitters
     if mod(k,1000)==0 || k==num_interferers
         fprintf('Processed %d of %d transmitters...\n',k,num_interferers);
     end
-
+toc
+fprintf('  Distance      : %.1f km\n', Delta_m(k)/1000);
 end
 
 % Compute Aggregate interference (multiple transmitters)
@@ -194,6 +199,7 @@ fprintf("Aggregate Interference = %.2f dBm\n",I_total_dBm);
 % Compute I/N ratio
 
 I_over_N_dB = I_total_dBm - N_dBm;
+
 
 %{
 commenting this section because transmitters are fixed
@@ -240,7 +246,11 @@ figure
 bar([I_dBm I_total_dBm])
 
 grid on
-xticklabels({'TX1','TX2','TX3','Aggregate'})
+labels = arrayfun(@(k) sprintf('TX%d',k), 1:num_interferers, ...
+    'UniformOutput', false);
+labels{end+1} = 'Aggregate';
+
+xticklabels(labels)
 ylabel('Interference (dBm)')
 title('Received Interference')
 figure
