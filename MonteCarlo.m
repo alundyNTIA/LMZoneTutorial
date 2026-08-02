@@ -120,14 +120,12 @@ RelPct_MC      = zeros(MCtrials,1);
 
 dBLoss_MC = zeros(MCtrials,num_interferers);
 
+RelPct_MC = zeros(MCtrials,num_interferers);
+
+
 % Monte Carlo simulation
 
 for mc = 1:MCtrials
-
-    % Draw ITM reliability from Uniform(0.01,0.99)
-    RelPct = 0.01 + 0.98*rand;
-
-    RelPct_MC(mc) = RelPct;
 
     % Reset outputs for this realization
     dBLoss  = zeros(1,num_interferers);
@@ -137,20 +135,22 @@ for mc = 1:MCtrials
 
     % Existing transmitter loop
     for k = 1:num_interferers
-tic
-% Random ITM reliability for this transmitter
-RelPct = 0.01 + 0.98*rand;
-    % Single-element inputs
-    txLat = TxLat(k);
-    txLon = TxLon(k);
-    txHtm = TxHtm(k);
-    freq  = FreqMHz(k);
+        tic
+        % Random ITM reliability for this transmitter
+        RelPct = 0.01 + 0.98*rand;
+        RelPct_MC(mc,k) = RelPct;
 
-    % Outputs for this transmitter
-    loss  = 0;
-    pmode = int32(0);
-    err   = int32(0);
-    dist  = 0;
+        % Single-element inputs
+        txLat = TxLat(k);
+        txLon = TxLon(k);
+        txHtm = TxHtm(k);
+        freq  = FreqMHz(k);
+
+        % Outputs for this transmitter
+        loss  = 0;
+        pmode = int32(0);
+        err   = int32(0);
+        dist  = 0;
 
     [loss, pmode, err, dist] = ...
         itmp.ITMp2pAry( ...
@@ -263,83 +263,15 @@ for k=1:num_interferers
 
 end
 
-fprintf('Aggregate Interference = %.2f dBm\n',I_total_dBm);
-fprintf('I/N = %.2f dB\n',I_over_N_dB);
+fprintf('Mean Aggregate I/N = %.2f dB\n',mean(I_over_N_MC));
 
-if I_over_N_dB <= I_N_threshold
-    disp("Protection criterion not exceeded.")
-else
-    disp("Protection criterion exceeded.")
-end
 
-%% Plot
-figure
+% Plot
 
-figure
-histogram(I_over_N_MC,30)
-xlabel('I/N')
-ylabel('Probability Density')
-title('Distribution of I/N')
-
-% CDF of Aggregate I/N
-
-figure
-cdfplot(I_over_N_MC)
-
+histogram(RelPct_MC(:),20,'Normalization','pdf')
 hold on
-xline(I_N_threshold,'r--','LineWidth',2)
-
-xlabel('Aggregate I/N (dB)')
-ylabel('Cumulative Probability')
-title('CDF of Aggregate I/N')
-grid on
-
-hold on
-
-xline(I_N_threshold,'r--','LineWidth',2)
-
-xlabel('Aggregate I/N (dB)')
-ylabel('Number of Trials')
-title('Monte Carlo Distribution of Aggregate I/N')
-grid on
-
-grid on
-labels = arrayfun(@(k) sprintf('TX%d',k), 1:num_interferers, ...
-    'UniformOutput', false);
-labels{end+1} = 'Aggregate';
-
-xticklabels(labels)
-ylabel('Interference (dBm)')
-title('Received Interference')
-figure
-bar(I_over_N_dB)
-
-hold on
-
-yline(I_N_threshold,'r--','LineWidth',2)
-ylabel('I/N (dB)')
-title('Aggregate I/N')
-grid on
-%%
-
-figure
-histogram(I_over_N_MC,25,'Normalization','pdf')
-
-hold on
-xline(I_N_threshold,'r--','LineWidth',2)
-
-xlabel('Aggregate I/N (dB)')
-ylabel('Probability Density')
-title('Distribution of Aggregate I/N')
-grid on
-
-figure
-histogram(I_over_N_MC,25,'Normalization','pdf')
-
-figure
 histogram(dBLoss_MC(:),30,'Normalization','pdf')
-
-xlabel('ITM Path Loss (dB)')
-ylabel('Probability Density')
-title('Distribution of ITM Path Loss')
-grid on
+hold on
+histogram(I_over_N_MC,25,'Normalization','pdf')
+hold on
+cdfplot(I_over_N_MC)
