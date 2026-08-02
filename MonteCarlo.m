@@ -112,11 +112,13 @@ itmp = ITMAcs.ITMP2P;
 
 % Monte Carlo parameters
 
-MCtrials = 10; % Number of Monte Carlo trials
+MCtrials = 100; % Number of Monte Carlo trials
 
 I_total_dBm_MC = zeros(MCtrials,1);
 I_over_N_MC    = zeros(MCtrials,1);
 RelPct_MC      = zeros(MCtrials,1);
+
+dBLoss_MC = zeros(MCtrials,num_interferers);
 
 % Monte Carlo simulation
 
@@ -174,6 +176,8 @@ RelPct = 0.01 + 0.98*rand;
         dist);
 
     dBLoss(k)  = double(loss);
+    dBLoss_MC(mc,k) = dBLoss(k);
+
     PMode(k)   = pmode;
     ErrNum(k)  = err;
     Delta_m(k) = dist;
@@ -273,8 +277,11 @@ figure
 
 figure
 histogram(I_over_N_MC,30)
+xlabel('I/N')
+ylabel('Probability Density')
+title('Distribution of I/N')
 
-%% CDF of Aggregate I/N
+% CDF of Aggregate I/N
 
 figure
 cdfplot(I_over_N_MC)
@@ -314,3 +321,25 @@ ylabel('I/N (dB)')
 title('Aggregate I/N')
 grid on
 %%
+
+figure
+histogram(I_over_N_MC,25,'Normalization','pdf')
+
+hold on
+xline(I_N_threshold,'r--','LineWidth',2)
+
+xlabel('Aggregate I/N (dB)')
+ylabel('Probability Density')
+title('Distribution of Aggregate I/N')
+grid on
+
+figure
+histogram(I_over_N_MC,25,'Normalization','pdf')
+
+figure
+histogram(dBLoss_MC(:),30,'Normalization','pdf')
+
+xlabel('ITM Path Loss (dB)')
+ylabel('Probability Density')
+title('Distribution of ITM Path Loss')
+grid on
