@@ -110,15 +110,34 @@ TerDirectory = 'C:\USGS\USGS\';
 
 itmp = ITMAcs.ITMP2P;
 
-% Process one transmitter at a time
+% Monte Carlo parameters
 
-dBLoss  = zeros(1,num_interferers);
-PMode   = int32(zeros(1,num_interferers));
-ErrNum  = int32(zeros(1,num_interferers));
-Delta_m = zeros(1,num_interferers);
+MCtrials = 10; % Number of Monte Carlo trials
 
-for k = 1:num_interferers
+I_total_dBm_MC = zeros(MCtrials,1);
+I_over_N_MC    = zeros(MCtrials,1);
+RelPct_MC      = zeros(MCtrials,1);
+
+% Monte Carlo simulation
+
+for mc = 1:MCtrials
+
+    % Draw ITM reliability from Uniform(0.01,0.99)
+    RelPct = 0.01 + 0.98*rand;
+
+    RelPct_MC(mc) = RelPct;
+
+    % Reset outputs for this realization
+    dBLoss  = zeros(1,num_interferers);
+    PMode   = int32(zeros(1,num_interferers));
+    ErrNum  = int32(zeros(1,num_interferers));
+    Delta_m = zeros(1,num_interferers);
+
+    % Existing transmitter loop
+    for k = 1:num_interferers
 tic
+% Random ITM reliability for this transmitter
+RelPct = 0.01 + 0.98*rand;
     % Single-element inputs
     txLat = TxLat(k);
     txLon = TxLon(k);
@@ -177,30 +196,37 @@ end
 % Then calculate total I/N dBm and compare against the protection
 % threshold.
 
-%% Received interference from each transmitter
+% Aggregate interference for this realization
 
 I_dBm = Pt_dBm ...
-       + Gt_dBi ...
-       + Gr_dBi ...
-       - dBLoss ...
-       - misc_loss;
-
-disp("Interference powers (dBm)")
-disp(I_dBm)
-
-% Aggregate interference
+    + Gt_dBi ...
+    + Gr_dBi ...
+    - dBLoss ...
+    - misc_loss;
 
 I_mW = 10.^(I_dBm/10);
-
 I_total_mW = sum(I_mW);
+I_total_dBm_MC(mc) = 10*log10(I_total_mW);
+I_over_N_MC(mc) = I_total_dBm_MC(mc) - N_dBm;
 
-I_total_dBm = 10*log10(I_total_mW);
+end     % <-- End Monte Carlo loop
 
-fprintf("Aggregate Interference = %.2f dBm\n",I_total_dBm);
 
-% Compute I/N ratio
+fprintf('\nMonte Carlo Results\n');
 
-I_over_N_dB = I_total_dBm - N_dBm;
+fprintf('Mean Aggregate I/N = %.2f dB\n',mean(I_over_N_MC));
+
+fprintf('Median Aggregate I/N = %.2f dB\n',median(I_over_N_MC));
+
+fprintf('Std Dev = %.2f dB\n',std(I_over_N_MC));
+
+fprintf('Minimum = %.2f dB\n',min(I_over_N_MC));
+
+fprintf('Maximum = %.2f dB\n',max(I_over_N_MC));
+
+Pexceed = mean(I_over_N_MC > I_N_threshold);
+
+fprintf('Probability of Exceedance = %.4f\n',Pexceed);
 
 
 %{
@@ -245,7 +271,30 @@ end
 %% Plot
 figure
 
-bar([I_dBm I_total_dBm])
+figure
+histogram(I_over_N_MC,30)
+
+%% CDF of Aggregate I/N
+
+figure
+cdfplot(I_over_N_MC)
+
+hold on
+xline(I_N_threshold,'r--','LineWidth',2)
+
+xlabel('Aggregate I/N (dB)')
+ylabel('Cumulative Probability')
+title('CDF of Aggregate I/N')
+grid on
+
+hold on
+
+xline(I_N_threshold,'r--','LineWidth',2)
+
+xlabel('Aggregate I/N (dB)')
+ylabel('Number of Trials')
+title('Monte Carlo Distribution of Aggregate I/N')
+grid on
 
 grid on
 labels = arrayfun(@(k) sprintf('TX%d',k), 1:num_interferers, ...

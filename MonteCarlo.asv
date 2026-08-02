@@ -110,15 +110,36 @@ TerDirectory = 'C:\USGS\USGS\';
 
 itmp = ITMAcs.ITMP2P;
 
+% Monte Carlo parameters
+
+MCtrials = 10; % Number of Monte Carlo trials
+
+I_total_dBm_MC = zeros(MCtrials,1);
+I_over_N_MC    = zeros(trialsMC,1);
+RelPct_MC      = zeros(trialsMC,1);
+
 % Process one transmitter at a time
 
-dBLoss  = zeros(1,num_interferers);
-PMode   = int32(zeros(1,num_interferers));
-ErrNum  = int32(zeros(1,num_interferers));
-Delta_m = zeros(1,num_interferers);
+%% Monte Carlo simulation
 
-for k = 1:num_interferers
+for mc = 1:MCtrials
+
+    % Draw ITM reliability from Uniform(0.01,0.99)
+    RelPct = 0.01 + 0.98*rand;
+
+    RelPct_MC(mc) = RelPct;
+
+    % Reset outputs for this realization
+    dBLoss  = zeros(1,num_interferers);
+    PMode   = int32(zeros(1,num_interferers));
+    ErrNum  = int32(zeros(1,num_interferers));
+    Delta_m = zeros(1,num_interferers);
+
+    % Existing transmitter loop
+    for k = 1:num_interferers
 tic
+% Random ITM reliability for this transmitter
+RelPct = 0.01 + 0.98*rand;
     % Single-element inputs
     txLat = TxLat(k);
     txLon = TxLon(k);
@@ -159,14 +180,16 @@ tic
     ErrNum(k)  = err;
     Delta_m(k) = dist;
 
-    deg2km(distance(txLat,txLon,RxLat,RxLon) ;
+    tx_rx_distance = deg2km(distance(txLat,txLon,RxLat,RxLon));
+
+    fprintf('TX %d Distance: %.2f km\n', k, tx_rx_distance);
 
     % Optional progress display every 1000 transmitters
     if mod(k,1000)==0 || k==num_interferers
         fprintf('Processed %d of %d transmitters...\n',k,num_interferers);
     end
 toc
-fprintf('  Distance      : %.1f km\n', Delta_m(k)/1000);
+%fprintf('  Distance      : %.1f km\n', Delta_m(k)/1000);
 end
 
 % Compute Aggregate interference (multiple transmitters)
@@ -175,30 +198,37 @@ end
 % Then calculate total I/N dBm and compare against the protection
 % threshold.
 
-%% Received interference from each transmitter
+% Aggregate interference for this realization
 
 I_dBm = Pt_dBm ...
-       + Gt_dBi ...
-       + Gr_dBi ...
-       - dBLoss ...
-       - misc_loss;
-
-disp("Interference powers (dBm)")
-disp(I_dBm)
-
-% Aggregate interference
+    + Gt_dBi ...
+    + Gr_dBi ...
+    - dBLoss ...
+    - misc_loss;
 
 I_mW = 10.^(I_dBm/10);
-
 I_total_mW = sum(I_mW);
+I_total_dBm_MC(mc) = 10*log10(I_total_mW);
+I_over_N_MC(mc) = I_total_dBm_MC(mc) - N_dBm;
 
-I_total_dBm = 10*log10(I_total_mW);
+end     % <-- End Monte Carlo loop
 
-fprintf("Aggregate Interference = %.2f dBm\n",I_total_dBm);
 
-% Compute I/N ratio
+fprintf('\nMonte Carlo Results\n');
 
-I_over_N_dB = I_total_dBm - N_dBm;
+fprintf('Mean Aggregate I/N = %.2f dB\n',mean(I_over_N_MC));
+
+fprintf('Median Aggregate I/N = %.2f dB\n',median(I_over_N_MC));
+
+fprintf('Std Dev = %.2f dB\n',std(I_over_N_MC));
+
+fprintf('Minimum = %.2f dB\n',min(I_over_N_MC));
+
+fprintf('Maximum = %.2f dB\n',max(I_over_N_MC));
+
+Pexceed = mean(I_over_N_MC > I_N_threshold);
+
+fprintf('Probability of Exceedance = %.4f\n',Pexceed);
 
 
 %{
@@ -223,7 +253,7 @@ fprintf('\nInterferer Summary\n');
 for k=1:num_interferers
 
     fprintf('TX %d\n',k);
-    fprintf('  Distance      : %.1f km\n',Delta_m(k)/1000);
+    %fprintf('  Distance      : %.1f km\n',Delta_m(k)/1000);
     fprintf('  Path Loss     : %.2f dB\n',dBLoss(k));
     fprintf('  Mode          : %d\n',PMode(k));
     fprintf('  Error Code    : %d\n',ErrNum(k));
@@ -243,7 +273,17 @@ end
 %% Plot
 figure
 
-bar([I_dBm I_total_dBm])
+figure
+histogram(I_over_N_MC,30)
+
+hold on
+
+xline(I_N_threshold,'r--','LineWidth',2)
+
+xlabel('Aggregate I/N (dB)')
+ylabel('Number of Trials')
+title('Monte Carlo Distribution of Aggregate I/N')
+grid on
 
 grid on
 labels = arrayfun(@(k) sprintf('TX%d',k), 1:num_interferers, ...
