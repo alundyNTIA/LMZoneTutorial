@@ -51,9 +51,33 @@ end
 
 txTable = readtable(csvFile);
 
-% Keep only the first 10 transmitters (or fewer if the file has <10)
-num_interferers = min(10, height(txTable));
-txTable = txTable(1:num_interferers,:);
+txTable_original = txTable; % saving original network before BS removal
+
+%% Compute distance from each transmitter to the receiver
+
+TxDistance_km = deg2km(distance( ...
+    txTable.Latitude, ...
+    txTable.Longitude, ...
+    RxLat*ones(height(txTable),1), ...
+    RxLon*ones(height(txTable),1)));
+
+% Add the distance to the table
+txTable.Distance_km = TxDistance_km;
+
+%% Sort by increasing distance
+
+txTable = sortrows(txTable,'Distance_km');
+
+% Keep all transmitters within 100 km, study area
+
+MaxCoordDistance = 100;      % km
+
+txTable = txTable(txTable.Distance_km <= MaxCoordDistance,:);
+
+num_interferers = height(txTable);
+
+fprintf('%d transmitters are within %.0f km of the receiver.\n',...
+    num_interferers,MaxCoordDistance);
 
 % Extract transmitter information
 TxLat = txTable.Latitude';
@@ -63,6 +87,34 @@ TxHtm = txTable.Height_M';
 % Optional information
 TxID = txTable.ID;
 RSU  = txTable.RSU;
+
+% Sort transmitters by distance from receiver
+
+% Great-circle distance (km) from each transmitter to the receiver
+TxDistance_km = deg2km(distance(TxLat, TxLon, RxLat, RxLon));
+
+% Sort in ascending order of distance
+[TxDistance_km, sortIdx] = sort(TxDistance_km);
+
+% Reorder all transmitter information
+TxLat = TxLat(sortIdx);
+TxLon = TxLon(sortIdx);
+TxHtm = TxHtm(sortIdx);
+
+TxID = TxID(sortIdx);
+RSU  = RSU(sortIdx);
+
+% (Optional) reorder the table itself
+txTable = txTable(sortIdx,:);
+
+fprintf('\nClosest transmitters to receiver\n');
+fprintf('--------------------------------------------\n');
+
+for k = 1:num_interferers
+    fprintf('TX %-6s  %.2f km\n', ...
+        string(TxID(k)), ...
+        TxDistance_km(k));
+end
 
 fprintf('Loaded %d transmitters from %s\n', num_interferers, csvFile);
 
@@ -135,7 +187,7 @@ for mc = 1:MCtrials
 
     % Existing transmitter loop
     for k = 1:num_interferers
-        tic
+        %tic
         % Random ITM reliability for this transmitter
         RelPct = 0.01 + 0.98*rand;
         RelPct_MC(mc,k) = RelPct;
@@ -182,16 +234,14 @@ for mc = 1:MCtrials
     ErrNum(k)  = err;
     Delta_m(k) = dist;
 
-    tx_rx_distance = deg2km(distance(txLat,txLon,RxLat,RxLon));
-
-    fprintf('TX %d Distance: %.2f km\n', k, tx_rx_distance);
+    %fprintf('Distance      : %.2f km\n', TxDistance_km(k));
 
     % Optional progress display every 1000 transmitters
     if mod(k,1000)==0 || k==num_interferers
         fprintf('Processed %d of %d transmitters...\n',k,num_interferers);
     end
-toc
-%fprintf('  Distance      : %.1f km\n', Delta_m(k)/1000);
+%toc
+
 end
 
 % Compute Aggregate interference (multiple transmitters)
@@ -215,6 +265,77 @@ I_over_N_MC(mc) = I_total_dBm_MC(mc) - N_dBm;
 
 end     % <-- End Monte Carlo loop
 
+% Calculate average path loss from each transmitter
+MeanPathLoss = mean(dBLoss_MC,1);
+
+I_dBm = Pt_dBm ...
+    + Gt_dBi ...
+    + Gr_dBi ...
+    - MeanPathLoss ...
+    - misc_loss;
+
+I_mW = 10.^(I_dBm/10);
+
+% Calculate each transmitter's aggregate contribution
+
+Iagg_dBm = 10*log10(sum(I_mW));
+
+Contribution_dB = zeros(num_interferers,1);
+ContributionPct = zeros(num_interferers,1);
+
+for k = 1:num_interferers
+
+    RemainingPower = sum(I_mW) - I_mW(k);
+
+    Iminus_dBm = 10*log10(RemainingPower);
+
+    Contribution_dB(k) = Iagg_dBm - Iminus_dBm;
+
+    ContributionPct(k) = 100*I_mW(k)/sum(I_mW);
+
+end
+
+% Rank each transmitter
+[ContributionPct,idx] = sort(ContributionPct,'descend');
+
+Contribution_dB = Contribution_dB(idx);
+
+TxID = TxID(idx);
+
+TxDistance_km = TxDistance_km(idx);
+
+I_dBm = I_dBm(idx);
+
+% Print coordination table
+fprintf('\nBase Station Coordination Ranking\n');
+fprintf('-------------------------------------------------------------\n');
+fprintf('Rank   ID    Dist(km)   I(dBm)   %%Agg    DeltaAgg(dB)\n');
+
+for k=1:num_interferers
+
+    fprintf('%3d %8s %8.1f %10.2f %8.2f %10.3f\n',...
+        k,...
+        string(TxID(k)),...
+        TxDistance_km(k),...
+        I_dBm(k),...
+        ContributionPct(k),...
+        Contribution_dB(k));
+
+end
+
+% Plots
+% Plot base station contribution to aggregate interference
+
+figure
+
+bar(ContributionPct)
+
+xlabel('Base Station Rank')
+ylabel('Contribution to Aggregate Interference (%)')
+
+title('Base Station Percentage Contribution to Aggregate Interference')
+
+grid on
 
 fprintf('\nMonte Carlo Results\n');
 
@@ -252,26 +373,39 @@ fprintf("Protection distance: %.2f km\n", d_protect_km);
 % Summary Data
 fprintf('\nInterferer Summary\n');
 
-for k=1:num_interferers
+%for k=1:num_interferers
 
-    fprintf('TX %d\n',k);
-    %fprintf('  Distance      : %.1f km\n',Delta_m(k)/1000);
-    fprintf('  Path Loss     : %.2f dB\n',dBLoss(k));
-    fprintf('  Mode          : %d\n',PMode(k));
-    fprintf('  Error Code    : %d\n',ErrNum(k));
-    fprintf('  Interference  : %.2f dBm\n\n',I_dBm(k));
+%    fprintf('TX %d\n',k);
+%    %fprintf('  Distance      : %.1f km\n',Delta_m(k)/1000);
+%    fprintf('  Path Loss     : %.2f dB\n',dBLoss(k));
+%    fprintf('  Mode          : %d\n',PMode(k));
+%    fprintf('  Error Code    : %d\n',ErrNum(k));
+%    fprintf('  Interference  : %.2f dBm\n\n',I_dBm(k));
 
-end
+%end
 
 fprintf('Mean Aggregate I/N = %.2f dB\n',mean(I_over_N_MC));
 
 
 % Plot
+% Histogram (Probability Density)
 
-histogram(RelPct_MC(:),20,'Normalization','pdf')
+figure
+
+histogram(I_over_N_MC,20,'Normalization','pdf');
+
 hold on
-histogram(dBLoss_MC(:),30,'Normalization','pdf')
-hold on
-histogram(I_over_N_MC,25,'Normalization','pdf')
-hold on
-cdfplot(I_over_N_MC)
+xline(I_N_threshold,'r--','LineWidth',2);
+
+xlabel('Aggregate I/N (dB)');
+ylabel('Probability Density');
+title('Aggregate I/N Distribution');
+
+meanIN = mean(I_over_N_MC);
+
+xline(meanIN,'k-','LineWidth',2);
+
+legend('Monte Carlo','Threshold','Mean','Location','best');
+
+grid on;
+
