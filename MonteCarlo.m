@@ -70,7 +70,7 @@ txTable = sortrows(txTable,'Distance_km');
 
 % Keep all transmitters within study area km, study area
 
-MaxCoordDistance = 15;      % km
+MaxCoordDistance = 200;      % km
 
 txTable = txTable(txTable.Distance_km <= MaxCoordDistance,:);
 
@@ -164,7 +164,7 @@ itmp = ITMAcs.ITMP2P;
 
 % Monte Carlo parameters
 
-MCtrials = 10; % Number of Monte Carlo trials
+MCtrials = 100; % Number of Monte Carlo trials
 
 I_total_dBm_MC = zeros(MCtrials,1);
 I_over_N_MC    = zeros(MCtrials,1);
@@ -175,9 +175,9 @@ dBLoss_MC = zeros(MCtrials,num_interferers);
 RelPct_MC = zeros(MCtrials,num_interferers);
 
 
-% Writing tooutput file
-% Allocate output arrays (one row per transmitter per Monte Carlo trial)
-
+%% Writing tooutput file Allocate output arrays (one row per transmitter per
+% Monte Carlo trial)
+%{
 numRows = MCtrials * num_interferers;
 
 TrialOut    = zeros(numRows,1);
@@ -193,7 +193,7 @@ AggOut      = zeros(numRows,1);
 
 row = 1;
 %%
-
+%}
 
 % Monte Carlo simulation
 
@@ -253,6 +253,7 @@ for mc = 1:MCtrials
 
     %% Writing to file
     % Individual transmitter interference (dBm)
+    %{
     I_single = Pt_dBm ...
         + Gt_dBi ...
         + Gr_dBi ...
@@ -261,6 +262,7 @@ for mc = 1:MCtrials
 
     IoverN_single = I_single - N_dBm;
     %%
+    %}
 
     dBLoss_MC(mc,k) = dBLoss(k);
 
@@ -272,6 +274,7 @@ for mc = 1:MCtrials
 
     %% Writing to file
     % Save one output row
+    %{
     TrialOut(row)    = mc;
     TxLatOut(row)    = txLat;
     TxLonOut(row)    = txLon;
@@ -285,6 +288,8 @@ for mc = 1:MCtrials
     row = row + 1;
 
     %%
+
+    %}
 
     % Optional progress display every 1000 transmitters
     if mod(k,1000)==0 || k==num_interferers
@@ -320,7 +325,7 @@ end     % <-- End Monte Carlo loop
 
 %% Writing to output file
 %% Create output table
-
+%{
 OutputTable = table( ...
     TrialOut, ...
     TxLatOut, ...
@@ -347,6 +352,8 @@ writetable(OutputTable,'ITM_MC_Output.csv');
 
 fprintf('\nSaved %d rows to ITM_MC_Output.xlsx\n',height(OutputTable));
 %%
+
+%}
 
 % Calculate average path loss from each transmitter
 MeanPathLoss = mean(dBLoss_MC,1);
@@ -492,3 +499,34 @@ legend('Monte Carlo','Threshold','Mean','Location','best');
 
 grid on;
 
+figure
+
+[f,x] = ecdf(I_over_N_MC);
+
+plot(x,f,'LineWidth',2)
+
+hold on
+
+xline(I_N_threshold,'r--')
+
+xlabel('Aggregate I/N (dB)')
+ylabel('Cumulative Probability')
+
+title('CDF of Aggregate I/N')
+
+grid on
+
+
+figure
+
+scatter(TxDistance_km,I_dBm,20,'filled')
+
+hold on
+yline(N_dBm,'r--')
+
+xlabel('Distance (km)')
+ylabel('Interference Power (dBm)')
+
+title('Received Interference vs Distance')
+
+grid on
