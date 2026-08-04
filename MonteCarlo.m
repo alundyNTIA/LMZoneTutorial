@@ -68,9 +68,9 @@ txTable.Distance_km = TxDistance_km;
 
 txTable = sortrows(txTable,'Distance_km');
 
-% Keep all transmitters within 100 km, study area
+% Keep all transmitters within study area km, study area
 
-MaxCoordDistance = 100;      % km
+MaxCoordDistance = 15;      % km
 
 txTable = txTable(txTable.Distance_km <= MaxCoordDistance,:);
 
@@ -164,7 +164,7 @@ itmp = ITMAcs.ITMP2P;
 
 % Monte Carlo parameters
 
-MCtrials = 100; % Number of Monte Carlo trials
+MCtrials = 10; % Number of Monte Carlo trials
 
 I_total_dBm_MC = zeros(MCtrials,1);
 I_over_N_MC    = zeros(MCtrials,1);
@@ -175,9 +175,31 @@ dBLoss_MC = zeros(MCtrials,num_interferers);
 RelPct_MC = zeros(MCtrials,num_interferers);
 
 
+% Writing tooutput file
+% Allocate output arrays (one row per transmitter per Monte Carlo trial)
+
+numRows = MCtrials * num_interferers;
+
+TrialOut    = zeros(numRows,1);
+TxLatOut    = zeros(numRows,1);
+TxLonOut    = zeros(numRows,1);
+TxHeightOut = zeros(numRows,1);
+
+LossOut     = zeros(numRows,1);
+RelOut      = zeros(numRows,1);
+IOut        = zeros(numRows,1);
+INOut       = zeros(numRows,1);
+AggOut      = zeros(numRows,1);
+
+row = 1;
+%%
+
+
 % Monte Carlo simulation
 
 for mc = 1:MCtrials
+
+    trialStartRow = row;
 
     % Reset outputs for this realization
     dBLoss  = zeros(1,num_interferers);
@@ -228,6 +250,18 @@ for mc = 1:MCtrials
         dist);
 
     dBLoss(k)  = double(loss);
+
+    %% Writing to file
+    % Individual transmitter interference (dBm)
+    I_single = Pt_dBm ...
+        + Gt_dBi ...
+        + Gr_dBi ...
+        - dBLoss(k) ...
+        - misc_loss;
+
+    IoverN_single = I_single - N_dBm;
+    %%
+
     dBLoss_MC(mc,k) = dBLoss(k);
 
     PMode(k)   = pmode;
@@ -235,6 +269,22 @@ for mc = 1:MCtrials
     Delta_m(k) = dist;
 
     %fprintf('Distance      : %.2f km\n', TxDistance_km(k));
+
+    %% Writing to file
+    % Save one output row
+    TrialOut(row)    = mc;
+    TxLatOut(row)    = txLat;
+    TxLonOut(row)    = txLon;
+    TxHeightOut(row) = txHtm;
+
+    LossOut(row)     = dBLoss(k);
+    RelOut(row)      = RelPct;
+    IOut(row)        = I_single;
+    INOut(row)       = IoverN_single;
+
+    row = row + 1;
+
+    %%
 
     % Optional progress display every 1000 transmitters
     if mod(k,1000)==0 || k==num_interferers
@@ -263,7 +313,40 @@ I_total_mW = sum(I_mW);
 I_total_dBm_MC(mc) = 10*log10(I_total_mW);
 I_over_N_MC(mc) = I_total_dBm_MC(mc) - N_dBm;
 
+AggIn = I_over_N_MC(mc);
+AggOut(trialStartRow:row-1) = AggIn;
+
 end     % <-- End Monte Carlo loop
+
+%% Writing to output file
+%% Create output table
+
+OutputTable = table( ...
+    TrialOut, ...
+    TxLatOut, ...
+    TxLonOut, ...
+    TxHeightOut, ...
+    LossOut, ...
+    RelOut, ...
+    IOut, ...
+    INOut, ...
+    AggOut,...
+    'VariableNames',{ ...
+    'Trial', ...
+    'TxLatitude', ...
+    'TxLongitude', ...
+    'TxHeight_m', ...
+    'ITM_PathLoss_dB', ...
+    'ITM_Reliability', ...
+    'Interference_dBm', ...
+    'I_over_N_dB', ...
+    'Aggregate_I_over_N_dB'});
+
+writetable(OutputTable,'ITM_MC_Output.xlsx');
+writetable(OutputTable,'ITM_MC_Output.csv');
+
+fprintf('\nSaved %d rows to ITM_MC_Output.xlsx\n',height(OutputTable));
+%%
 
 % Calculate average path loss from each transmitter
 MeanPathLoss = mean(dBLoss_MC,1);
