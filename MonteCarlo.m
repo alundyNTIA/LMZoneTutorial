@@ -70,7 +70,7 @@ txTable = sortrows(txTable,'Distance_km');
 
 % Keep all transmitters within study area km, study area
 
-MaxCoordDistance = 200;      % km
+MaxCoordDistance = 100;      % km
 
 txTable = txTable(txTable.Distance_km <= MaxCoordDistance,:);
 
@@ -174,6 +174,36 @@ dBLoss_MC = zeros(MCtrials,num_interferers);
 
 RelPct_MC = zeros(MCtrials,num_interferers);
 
+%% ITU-R P.2108-1 Terrestrial Clutter Parameters
+
+UseP2108 = true;
+
+% P.2108 terrestrial statistical model:
+% Frequency range: 0.5 to 67 GHz
+% Minimum distance:
+%   0.25 km for one-end correction
+%   1.0 km for two-end correction
+%
+% We use a receiver-end correction because RxHtm = 5 m,
+% while the transmitters are approximately 20 m high.
+
+P2108_NumEnds = 1;
+
+% Percentage of locations for P.2108.
+%
+% IMPORTANT:
+% P.2108 defines Lctt as the clutter loss NOT EXCEEDED
+% for p percent of locations.
+%
+% For Monte Carlo modeling, we randomly draw p between
+% 0 and 100 for each transmitter and trial.
+
+P2108_MinP = 0.01;
+P2108_MaxP = 99.99;
+
+% Storage for P.2108 results
+P2108_Loss_MC = zeros(MCtrials,num_interferers);
+P2108_Pct_MC  = zeros(MCtrials,num_interferers);
 
 %% Writing tooutput file Allocate output arrays (one row per transmitter per
 % Monte Carlo trial)
@@ -199,7 +229,7 @@ row = 1;
 
 for mc = 1:MCtrials
 
-    trialStartRow = row;
+    %trialStartRow = row; % for debug output file only
 
     % Reset outputs for this realization
     dBLoss  = zeros(1,num_interferers);
@@ -213,6 +243,16 @@ for mc = 1:MCtrials
         % Random ITM reliability for this transmitter
         RelPct = 0.01 + 0.98*rand;
         RelPct_MC(mc,k) = RelPct;
+
+        % Random P.2108 percentage of locations
+        %
+        % P.2108 p is NOT the same thing as ITM reliability.
+        % They are independent statistical quantities.
+
+        P2108_Pct = P2108_MinP + ...
+            (P2108_MaxP - P2108_MinP)*rand;
+
+        P2108_Pct_MC(mc,k) = P2108_Pct;
 
         % Single-element inputs
         txLat = TxLat(k);
@@ -250,6 +290,46 @@ for mc = 1:MCtrials
         dist);
 
     dBLoss(k)  = double(loss);
+
+    % ------------------------------------------------------------
+    % ITU-R P.2108-1 terrestrial clutter loss
+    % ------------------------------------------------------------
+
+    if UseP2108
+
+        d_km = double(dist) / 1000;
+
+        % P.2108 terrestrial model has a minimum path distance.
+        % Since we are applying the correction at one end,
+        % minimum distance is 0.25 km.
+
+        if d_km >= 0.25
+
+            P2108_Loss = ITU_P2108_Terrestrial( ...
+                freq/1000, ...       % MHz -> GHz
+                d_km, ...
+                P2108_Pct);
+
+        else
+
+            P2108_Loss = 0;
+
+        end
+
+    else
+
+        P2108_Loss = 0;
+
+    end
+
+    % Save P.2108 clutter loss
+    P2108_Loss_MC(mc,k) = P2108_Loss;
+
+    % ------------------------------------------------------------
+    % Combined path loss
+    % ------------------------------------------------------------
+
+    dBLoss(k) = dBLoss(k) + P2108_Loss;
 
     %% Writing to file
     % Individual transmitter interference (dBm)
@@ -319,7 +399,7 @@ I_total_dBm_MC(mc) = 10*log10(I_total_mW);
 I_over_N_MC(mc) = I_total_dBm_MC(mc) - N_dBm;
 
 AggIn = I_over_N_MC(mc);
-AggOut(trialStartRow:row-1) = AggIn;
+%AggOut(trialStartRow:row-1) = AggIn; %debug output file only
 
 end     % <-- End Monte Carlo loop
 
@@ -412,6 +492,139 @@ for k=1:num_interferers
         Contribution_dB(k));
 
 end
+
+function Lctt = ITU_P2108_Terrestrial(f_GHz, d_km, p_pct)
+%ITU_P2108_TERRESTRIAL
+%   ITU-R P.2108-1 terrestrial statistical clutter loss model.
+%
+%   Inputs:
+%       f_GHz  - frequency in GHz
+%       d_km   - total path length in km
+%       p_pct  - percentage of locations
+%
+%   Output:
+%       Lctt   - clutter loss in dB
+%
+%   ITU-R P.2108-1 Section 3.2
+%
+%   Validity:
+%       Frequency:       0.5 to 67 GHz
+%       p:               0 < p < 100
+%       Distance:
+%           >= 0.25 km for one-end correction
+%           >= 1.0 km for two-end correction
+%
+%   Q^-1(p/100) is implemented using:
+%
+%       Q^-1(x) = sqrt(2)*erfcinv(2*x)
+
+    % ---------------------------------------------------------
+    % Check inputs
+    % ---------------------------------------------------------
+
+    if f_GHz < 0.5 || f_GHz > 67
+        error(['ITU-R P.2108 terrestrial model is valid from ', ...
+               '0.5 to 67 GHz. Input frequency = %.3f GHz.'], f_GHz);
+    end
+
+    if d_km <= 0
+        error('P.2108 path distance must be greater than zero.');
+    end
+
+    if p_pct <= 0 || p_pct >= 100
+        error('P.2108 percentage of locations must satisfy 0 < p < 100.');
+    end
+
+    % ---------------------------------------------------------
+    % Long-distance component, Eq. (4a)
+    % ---------------------------------------------------------
+
+    Ll = -2 * log10( ...
+        10.^(-5*log10(f_GHz) - 12.5) + ...
+        10.^(-16.5) );
+
+    % Standard deviation of long-distance component
+    sigma_l = 4;
+
+    % ---------------------------------------------------------
+    % Short-distance component, Eq. (5a)
+    % ---------------------------------------------------------
+
+    Ls = 32.98 ...
+        + 23.9 * log10(d_km) ...
+        + 3 * log10(f_GHz);
+
+    % Standard deviation of short-distance component
+    sigma_s = 6;
+
+    % ---------------------------------------------------------
+    % Combined standard deviation, Eq. (3b)
+    % ---------------------------------------------------------
+
+    numerator = ...
+        sigma_l^2 * 10.^(-0.2*Ll) + ...
+        sigma_s^2 * 10.^(-0.2*Ls);
+
+    denominator = ...
+        10.^(-0.2*Ll) + ...
+        10.^(-0.2*Ls);
+
+    sigma_cb = sqrt(numerator / denominator);
+
+    % ---------------------------------------------------------
+    % Inverse complementary normal distribution
+    %
+    % Q^-1(x) = sqrt(2)*erfcinv(2*x)
+    % ---------------------------------------------------------
+
+    Qinv = sqrt(2) * erfcinv(2*(p_pct/100));
+
+    % ---------------------------------------------------------
+    % P.2108 Eq. (3a)
+    % ---------------------------------------------------------
+
+    Lctt = ...
+        -5 * log10( ...
+        10.^(-0.2*Ll) + ...
+        10.^(-0.2*Ls) ) ...
+        - sigma_cb * Qinv;
+
+    % ---------------------------------------------------------
+    % P.2108 Eq. (6)
+    %
+    % Maximum clutter loss is the value calculated at 2 km.
+    % ---------------------------------------------------------
+
+    Ll_2km = Ll;
+
+    Ls_2km = ...
+        32.98 ...
+        + 23.9 * log10(2) ...
+        + 3 * log10(f_GHz);
+
+    numerator_2km = ...
+        sigma_l^2 * 10.^(-0.2*Ll_2km) + ...
+        sigma_s^2 * 10.^(-0.2*Ls_2km);
+
+    denominator_2km = ...
+        10.^(-0.2*Ll_2km) + ...
+        10.^(-0.2*Ls_2km);
+
+    sigma_cb_2km = sqrt(numerator_2km / denominator_2km);
+
+    Lctt_2km = ...
+        -5 * log10( ...
+        10.^(-0.2*Ll_2km) + ...
+        10.^(-0.2*Ls_2km) ) ...
+        - sigma_cb_2km * Qinv;
+
+    % Apply P.2108 maximum-loss limit
+    Lctt = min(Lctt, Lctt_2km);
+
+end
+
+
+
 
 % Plots
 % Plot base station contribution to aggregate interference
