@@ -170,9 +170,16 @@ I_total_dBm_MC = zeros(MCtrials,1);
 I_over_N_MC    = zeros(MCtrials,1);
 RelPct_MC      = zeros(MCtrials,1);
 
-dBLoss_MC = zeros(MCtrials,num_interferers);
+% Monte Carlo storage
+ITM_Loss_MC      = zeros(MCtrials,num_interferers);
+P2108_Loss_MC    = zeros(MCtrials,num_interferers);
+Total_Loss_MC    = zeros(MCtrials,num_interferers);
 
-RelPct_MC = zeros(MCtrials,num_interferers);
+RelPct_MC        = zeros(MCtrials,num_interferers);
+P2108_Pct_MC     = zeros(MCtrials,num_interferers);
+
+% Monte Carlo storage for received interference
+I_dBm_MC = zeros(MCtrials,num_interferers);
 
 %% ITU-R P.2108-1 Terrestrial Clutter Parameters
 
@@ -231,8 +238,10 @@ for mc = 1:MCtrials
 
     %trialStartRow = row; % for debug output file only
 
-    % Reset outputs for this realization
-    dBLoss  = zeros(1,num_interferers);
+    % Reset outputs for this trial
+    ITM_Loss = zeros(1,num_interferers);
+    P2108_Loss = zeros(1,num_interferers);
+    
     PMode   = int32(zeros(1,num_interferers));
     ErrNum  = int32(zeros(1,num_interferers));
     Delta_m = zeros(1,num_interferers);
@@ -289,47 +298,70 @@ for mc = 1:MCtrials
         err,...
         dist);
 
-    dBLoss(k)  = double(loss);
+    % ============================================================
+    % ITM PATH LOSS
+    % ============================================================
 
-    % ------------------------------------------------------------
-    % ITU-R P.2108-1 terrestrial clutter loss
-    % ------------------------------------------------------------
+    ITM_Loss(k) = double(loss);
 
-    if UseP2108
 
-        d_km = double(dist) / 1000;
+    % ============================================================
+    % ITU-R P.2108-1 TERRESTRIAL CLUTTER LOSS
+    % ============================================================
 
-        % P.2108 terrestrial model has a minimum path distance.
-        % Since we are applying the correction at one end,
-        % minimum distance is 0.25 km.
+    P2108_Loss(k) = ITU_P2108_Terrestrial( ...
+        freq/1000, ...
+        TxDistance_km(k), ...
+        P2108_Pct, ...
+        UseP2108);
 
-        if d_km >= 0.25
 
-            P2108_Loss = ITU_P2108_Terrestrial( ...
-                freq/1000, ...       % MHz -> GHz
-                d_km, ...
-                P2108_Pct);
+    % ============================================================
+    % TOTAL PROPAGATION LOSS
+    % ============================================================
 
-        else
+    Total_Loss(k) = ITM_Loss(k) + P2108_Loss(k);
 
-            P2108_Loss = 0;
 
-        end
+    % ============================================================
+    % SAVE MONTE CARLO COMPONENTS
+    % ============================================================
 
-    else
+    ITM_Loss_MC(mc,k)   = ITM_Loss(k);
+    P2108_Loss_MC(mc,k) = P2108_Loss(k);
+    Total_Loss_MC(mc,k) = Total_Loss(k);
 
-        P2108_Loss = 0;
+
+    % ============================================================
+    % LINK BUDGET FOR THIS TRANSMITTER
+    % ============================================================
+
+    I_dBm(k) = Pt_dBm ...
+        + Gt_dBi ...
+        + Gr_dBi ...
+        - ITM_Loss(k) ...
+        - P2108_Loss(k) ...
+        - misc_loss;
+
+
+    % Save received interference
+    I_dBm_MC(mc,k) = I_dBm(k);
+
+
+    % Diagnostic output
+    if mc == 1
+
+        fprintf(['TX %s: Distance = %.2f km, ', ...
+            'ITM = %.2f dB, P2108 = %.2f dB, ', ...
+            'Total = %.2f dB, I = %.2f dBm\n'], ...
+            string(TxID(k)), ...
+            d_km, ...
+            ITM_Loss(k), ...
+            P2108_Loss(k), ...
+            Total_Loss(k), ...
+            I_dBm(k));
 
     end
-
-    % Save P.2108 clutter loss
-    P2108_Loss_MC(mc,k) = P2108_Loss;
-
-    % ------------------------------------------------------------
-    % Combined path loss
-    % ------------------------------------------------------------
-
-    dBLoss(k) = dBLoss(k) + P2108_Loss;
 
     %% Writing to file
     % Individual transmitter interference (dBm)
@@ -385,17 +417,34 @@ end
 % Then calculate total I/N dBm and compare against the protection
 % threshold.
 
-% Aggregate interference for this realization
 
-I_dBm = Pt_dBm ...
-    + Gt_dBi ...
-    + Gr_dBi ...
-    - dBLoss ...
-    - misc_loss;
+% ============================================================
+% LINK BUDGET
+% ============================================================
+%
+% Received interference power for each transmitter:
+%
+% I = Pt + Gt + Gr
+%     - ITM path loss
+%     - P.2108 clutter loss
+%     - miscellaneous losses
+%
+% ============================================================
 
+% ============================================================
+% AGGREGATE INTERFERENCE
+% ============================================================
+
+% Convert individual transmitter interference from dBm to mW
 I_mW = 10.^(I_dBm/10);
+
+% Sum interference powers
 I_total_mW = sum(I_mW);
+
+% Convert aggregate power back to dBm
 I_total_dBm_MC(mc) = 10*log10(I_total_mW);
+
+% Aggregate I/N
 I_over_N_MC(mc) = I_total_dBm_MC(mc) - N_dBm;
 
 AggIn = I_over_N_MC(mc);
@@ -436,15 +485,30 @@ fprintf('\nSaved %d rows to ITM_MC_Output.xlsx\n',height(OutputTable));
 %}
 
 % Calculate average path loss from each transmitter
-MeanPathLoss = mean(dBLoss_MC,1);
 
-I_dBm = Pt_dBm ...
+% ============================================================
+% MEAN MONTE CARLO LINK BUDGET
+% ============================================================
+
+MeanITMLoss   = mean(ITM_Loss_MC,1);
+MeanP2108Loss = mean(P2108_Loss_MC,1);
+
+% Total propagation loss
+MeanTotalLoss = MeanITMLoss + MeanP2108Loss;
+
+
+% ============================================================
+% MEAN RECEIVED INTERFERENCE
+% ============================================================
+
+MeanI_dBm = Pt_dBm ...
     + Gt_dBi ...
     + Gr_dBi ...
-    - MeanPathLoss ...
+    - MeanITMLoss ...
+    - MeanP2108Loss ...
     - misc_loss;
 
-I_mW = 10.^(I_dBm/10);
+I_mW = 10.^(MeanI_dBm/10);
 
 % Calculate each transmitter's aggregate contribution
 
@@ -474,272 +538,172 @@ TxID = TxID(idx);
 
 TxDistance_km = TxDistance_km(idx);
 
-I_dBm = I_dBm(idx);
+MeanI_dBm = MeanI_dBm(idx);
+
+MeanITMLoss   = MeanITMLoss(idx);
+MeanP2108Loss = MeanP2108Loss(idx);
+MeanTotalLoss = MeanTotalLoss(idx);
 
 % Print coordination table
-fprintf('\nBase Station Coordination Ranking\n');
-fprintf('-------------------------------------------------------------\n');
-fprintf('Rank   ID    Dist(km)   I(dBm)   %%Agg    DeltaAgg(dB)\n');
+fprintf('\nLink Budget Components\n');
+fprintf('--------------------------------------------------------------------------------\n');
+fprintf('Rank   ID       Dist(km)   ITM(dB)   P2108(dB)   Misc(dB)   I(dBm)\n');
+fprintf('--------------------------------------------------------------------------------\n');
 
-for k=1:num_interferers
+for k = 1:num_interferers
 
-    fprintf('%3d %8s %8.1f %10.2f %8.2f %10.3f\n',...
-        k,...
-        string(TxID(k)),...
-        TxDistance_km(k),...
-        I_dBm(k),...
-        ContributionPct(k),...
-        Contribution_dB(k));
+    fprintf('%3d %8s %10.1f %10.2f %11.2f %10.2f %10.2f\n', ...
+        k, ...
+        string(TxID(k)), ...
+        TxDistance_km(k), ...
+        MeanITMLoss(k), ...
+        MeanP2108Loss(k), ...
+        misc_loss, ...
+        I_dBm(k));
 
 end
 
-function Lctt = ITU_P2108_Terrestrial(f_GHz, d_km, p_pct)
+%% ============================================================
+% LOCAL FUNCTIONS
+% ============================================================
+
+function Lctt = ITU_P2108_Terrestrial(f_GHz, d_km, p_pct, UseP2108)
 %ITU_P2108_TERRESTRIAL
-%   ITU-R P.2108-1 terrestrial statistical clutter loss model.
 %
-%   Inputs:
-%       f_GHz  - frequency in GHz
-%       d_km   - total path length in km
-%       p_pct  - percentage of locations
+% ITU-R P.2108-1 terrestrial statistical clutter loss model.
 %
-%   Output:
-%       Lctt   - clutter loss in dB
+% Inputs:
+%   f_GHz    - frequency in GHz
+%   d_km     - path distance in km
+%   p_pct    - percentage of locations, 0 < p < 100
+%   UseP2108 - true/false switch
 %
-%   ITU-R P.2108-1 Section 3.2
+% Output:
+%   Lctt     - terrestrial clutter loss in dB
 %
-%   Validity:
-%       Frequency:       0.5 to 67 GHz
-%       p:               0 < p < 100
-%       Distance:
-%           >= 0.25 km for one-end correction
-%           >= 1.0 km for two-end correction
+% This function implements the one-end terrestrial correction.
 %
-%   Q^-1(p/100) is implemented using:
-%
-%       Q^-1(x) = sqrt(2)*erfcinv(2*x)
+% Validity:
+%   Frequency: 0.5 to 67 GHz
+%   Distance:  >= 0.25 km
+%   p:         0 < p < 100
 
     % ---------------------------------------------------------
-    % Check inputs
+    % Disable P.2108 if requested
+    % ---------------------------------------------------------
+
+    if ~UseP2108
+        Lctt = 0;
+        return;
+    end
+
+
+    % ---------------------------------------------------------
+    % Input validation
     % ---------------------------------------------------------
 
     if f_GHz < 0.5 || f_GHz > 67
-        error(['ITU-R P.2108 terrestrial model is valid from ', ...
-               '0.5 to 67 GHz. Input frequency = %.3f GHz.'], f_GHz);
+        error('P.2108-1 requires 0.5 <= f <= 67 GHz.');
     end
 
-    if d_km <= 0
-        error('P.2108 path distance must be greater than zero.');
+    if d_km < 0.25
+        % P.2108 one-end correction does not apply below 0.25 km.
+        Lctt = 0;
+        return;
     end
 
     if p_pct <= 0 || p_pct >= 100
-        error('P.2108 percentage of locations must satisfy 0 < p < 100.');
+        error('P.2108 percentage must satisfy 0 < p < 100.');
     end
 
+
     % ---------------------------------------------------------
-    % Long-distance component, Eq. (4a)
+    % Long-distance component - Eq. (4a)
     % ---------------------------------------------------------
 
     Ll = -2 * log10( ...
         10.^(-5*log10(f_GHz) - 12.5) + ...
-        10.^(-16.5) );
+        10.^(-16.5));
 
-    % Standard deviation of long-distance component
     sigma_l = 4;
 
+
     % ---------------------------------------------------------
-    % Short-distance component, Eq. (5a)
+    % Short-distance component - Eq. (5a)
     % ---------------------------------------------------------
 
     Ls = 32.98 ...
         + 23.9 * log10(d_km) ...
         + 3 * log10(f_GHz);
 
-    % Standard deviation of short-distance component
     sigma_s = 6;
 
-    % ---------------------------------------------------------
-    % Combined standard deviation, Eq. (3b)
-    % ---------------------------------------------------------
-
-    numerator = ...
-        sigma_l^2 * 10.^(-0.2*Ll) + ...
-        sigma_s^2 * 10.^(-0.2*Ls);
-
-    denominator = ...
-        10.^(-0.2*Ll) + ...
-        10.^(-0.2*Ls);
-
-    sigma_cb = sqrt(numerator / denominator);
 
     % ---------------------------------------------------------
-    % Inverse complementary normal distribution
-    %
-    % Q^-1(x) = sqrt(2)*erfcinv(2*x)
+    % Combined standard deviation - Eq. (3b)
     % ---------------------------------------------------------
 
-    Qinv = sqrt(2) * erfcinv(2*(p_pct/100));
+    A = 10.^(-0.2 * Ll);
+    B = 10.^(-0.2 * Ls);
+
+    sigma_cb = sqrt( ...
+        (sigma_l^2 * A + sigma_s^2 * B) / ...
+        (A + B));
+
 
     % ---------------------------------------------------------
-    % P.2108 Eq. (3a)
+    % Inverse Q function
+    % ---------------------------------------------------------
+
+    Qinv = sqrt(2) * erfcinv(2 * p_pct / 100);
+
+
+    % ---------------------------------------------------------
+    % Clutter loss - Eq. (3a)
     % ---------------------------------------------------------
 
     Lctt = ...
-        -5 * log10( ...
-        10.^(-0.2*Ll) + ...
-        10.^(-0.2*Ls) ) ...
+        -5 * log10(A + B) ...
         - sigma_cb * Qinv;
 
+
     % ---------------------------------------------------------
-    % P.2108 Eq. (6)
+    % Maximum clutter loss - Eq. (6)
     %
-    % Maximum clutter loss is the value calculated at 2 km.
+    % Evaluate the model at 2 km.
     % ---------------------------------------------------------
 
-    Ll_2km = Ll;
+    d_2km = 2.0;
 
     Ls_2km = ...
         32.98 ...
-        + 23.9 * log10(2) ...
+        + 23.9 * log10(d_2km) ...
         + 3 * log10(f_GHz);
 
-    numerator_2km = ...
-        sigma_l^2 * 10.^(-0.2*Ll_2km) + ...
-        sigma_s^2 * 10.^(-0.2*Ls_2km);
+    B_2km = 10.^(-0.2 * Ls_2km);
 
-    denominator_2km = ...
-        10.^(-0.2*Ll_2km) + ...
-        10.^(-0.2*Ls_2km);
-
-    sigma_cb_2km = sqrt(numerator_2km / denominator_2km);
+    sigma_cb_2km = sqrt( ...
+        (sigma_l^2 * A + sigma_s^2 * B_2km) / ...
+        (A + B_2km));
 
     Lctt_2km = ...
-        -5 * log10( ...
-        10.^(-0.2*Ll_2km) + ...
-        10.^(-0.2*Ls_2km) ) ...
+        -5 * log10(A + B_2km) ...
         - sigma_cb_2km * Qinv;
 
-    % Apply P.2108 maximum-loss limit
+
+    % ---------------------------------------------------------
+    % Apply maximum-loss limit
+    % ---------------------------------------------------------
+
     Lctt = min(Lctt, Lctt_2km);
 
+
+    % ---------------------------------------------------------
+    % Final sanity check
+    % ---------------------------------------------------------
+
+    if ~isfinite(Lctt)
+        error('P.2108 calculation returned a non-finite value.');
+    end
+
 end
-
-
-
-
-% Plots
-% Plot base station contribution to aggregate interference
-
-figure
-
-bar(ContributionPct)
-
-xlabel('Base Station Rank')
-ylabel('Contribution to Aggregate Interference (%)')
-
-title('Base Station Percentage Contribution to Aggregate Interference')
-
-grid on
-
-fprintf('\nMonte Carlo Results\n');
-
-fprintf('Mean Aggregate I/N = %.2f dB\n',mean(I_over_N_MC));
-
-fprintf('Median Aggregate I/N = %.2f dB\n',median(I_over_N_MC));
-
-fprintf('Std Dev = %.2f dB\n',std(I_over_N_MC));
-
-fprintf('Minimum = %.2f dB\n',min(I_over_N_MC));
-
-fprintf('Maximum = %.2f dB\n',max(I_over_N_MC));
-
-Pexceed = mean(I_over_N_MC > I_N_threshold);
-
-fprintf('Probability of Exceedance = %.4f\n',Pexceed);
-
-
-%{
-commenting this section because transmitters are fixed
-% Calculate protection distance
-
-idx = find(I_over_N_dB < I_N_threshold, 1, 'first'); % get the index of the first I/N criteria met
-
-if isempty(idx)
-    d_protect_km = NaN;
-    disp("Threshold not reached within 200 km range");
-else
-    d_protect_km = d_km(idx);
-end
-
-fprintf("Protection distance: %.2f km\n", d_protect_km);
-%}
-
-% Summary Data
-fprintf('\nInterferer Summary\n');
-
-%for k=1:num_interferers
-
-%    fprintf('TX %d\n',k);
-%    %fprintf('  Distance      : %.1f km\n',Delta_m(k)/1000);
-%    fprintf('  Path Loss     : %.2f dB\n',dBLoss(k));
-%    fprintf('  Mode          : %d\n',PMode(k));
-%    fprintf('  Error Code    : %d\n',ErrNum(k));
-%    fprintf('  Interference  : %.2f dBm\n\n',I_dBm(k));
-
-%end
-
-fprintf('Mean Aggregate I/N = %.2f dB\n',mean(I_over_N_MC));
-
-
-% Plot
-% Histogram (Probability Density)
-
-figure
-
-histogram(I_over_N_MC,20,'Normalization','pdf');
-
-hold on
-xline(I_N_threshold,'r--','LineWidth',2);
-
-xlabel('Aggregate I/N (dB)');
-ylabel('Probability Density');
-title('Aggregate I/N Distribution');
-
-meanIN = mean(I_over_N_MC);
-
-xline(meanIN,'k-','LineWidth',2);
-
-legend('Monte Carlo','Threshold','Mean','Location','best');
-
-grid on;
-
-figure
-
-[f,x] = ecdf(I_over_N_MC);
-
-plot(x,f,'LineWidth',2)
-
-hold on
-
-xline(I_N_threshold,'r--')
-
-xlabel('Aggregate I/N (dB)')
-ylabel('Cumulative Probability')
-
-title('CDF of Aggregate I/N')
-
-grid on
-
-
-figure
-
-scatter(TxDistance_km,I_dBm,20,'filled')
-
-hold on
-yline(N_dBm,'r--')
-
-xlabel('Distance (km)')
-ylabel('Interference Power (dBm)')
-
-title('Received Interference vs Distance')
-
-grid on
